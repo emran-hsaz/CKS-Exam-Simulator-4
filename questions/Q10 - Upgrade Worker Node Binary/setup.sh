@@ -1,0 +1,12 @@
+#!/bin/bash
+echo "Setting up Q10 — Node upgrade scenario..."
+echo ""
+echo "Current node versions:"
+kubectl get nodes -o wide 2>/dev/null || echo "(kubectl not available here — run from control plane)"
+echo ""
+echo "This question requires:"
+echo "  - A worker node running kubelet v1.30.0"
+echo "  - The staged binary at /usr/local/bin/kubelet-1.30.1 on the worker node"
+echo ""
+echo "If running on Killercoda, the environment may already have node01 at the right version."
+echo "Steps: drain → ssh → replace binary → restart kubelet → uncordon"
