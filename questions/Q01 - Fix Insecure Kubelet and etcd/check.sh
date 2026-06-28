@@ -16,17 +16,23 @@ score=0; total=4
 hdr "Q1 | Fix Insecure Kubelet and etcd (4 pts)"
 
 KUBELET_CONFIG="/var/lib/kubelet/config.yaml"
+ETCD="/etc/kubernetes/manifests/etcd.yaml"
 
+# --- Kubelet anonymous ---
 anon=$(python3 -c "import yaml; c=yaml.safe_load(open('$KUBELET_CONFIG')); print(c.get('authentication',{}).get('anonymous',{}).get('enabled','not-set'))" 2>/dev/null)
 chk "Kubelet anonymous.enabled = false" "$([ "$anon" = "False" ] || [ "$anon" = "false" ] && echo true || echo false)" && ((score++))
 
+# --- Kubelet authorization mode ---
 mode=$(python3 -c "import yaml; c=yaml.safe_load(open('$KUBELET_CONFIG')); print(c.get('authorization',{}).get('mode','not-set'))" 2>/dev/null)
 chk "Kubelet authorization.mode = Webhook" "$([ "$mode" = "Webhook" ] && echo true || echo false)" && ((score++))
 
+# --- Kubelet service ---
 chk "Kubelet service is active" "$(systemctl is-active kubelet 2>/dev/null | grep -q active && echo true || echo false)" && ((score++))
 
-ETCD="/etc/kubernetes/manifests/etcd.yaml"
-etcd_auth=$(grep -o 'client-cert-auth=[a-z]*' "$ETCD" 2>/dev/null | cut -d= -f2)
-chk "etcd --client-cert-auth=true" "$([ "$etcd_auth" = "true" ] && echo true || echo false)" && ((score++))
+# --- etcd client-cert-auth: check that 'false' does NOT appear and 'true' does ---
+etcd_has_false=$(grep -c 'client-cert-auth=false' "$ETCD" 2>/dev/null || echo 0)
+etcd_has_true=$(grep -c 'client-cert-auth=true' "$ETCD" 2>/dev/null || echo 0)
+chk "etcd --client-cert-auth=true (and not false)" \
+  "$([ "$etcd_has_false" = "0" ] && [ "$etcd_has_true" -ge 1 ] && echo true || echo false)" && ((score++))
 
 score_line $score $total
