@@ -11,23 +11,42 @@ score_line() {
   else                        echo -e "\n  ${RED}${BOLD}Score: $s/$t ($p%) — Try again!${NC}\n"; fi
 }
 chk() { if [ "$2" = "true" ]; then pass "$1"; return 0; else fail "$1"; return 1; fi; }
-kget() { kubectl get "$1" -n "$2" -o jsonpath="{$3}" 2>/dev/null; }
 
 score=0; total=4
 hdr "Q9 | Disable API Credential Auto-Mounting (4 pts)"
 
-auto=$(kget sa/app-sa default '.automountServiceAccountToken')
+# Check SA automount is false
+auto=$(kubectl get sa app-sa -n default -o jsonpath='{.automountServiceAccountToken}' 2>/dev/null)
 chk "ServiceAccount app-sa automountServiceAccountToken = false" \
   "$([ "$auto" = "false" ] && echo true || echo false)" && ((score++))
 
-proj=$(kget deploy/token-app default '.spec.template.spec.volumes[0].projected')
+# BUG FIX: search ALL volumes for any projected volume — not just index [0]
+# The projected volume may not be the first volume in the list
+proj_count=$(kubectl get deploy token-app -n default \
+  -o jsonpath='{.spec.template.spec.volumes[*].projected}' 2>/dev/null | \
+  python3 -c "
+import sys, json
+data = sys.stdin.read().strip()
+# jsonpath returns space-separated JSON objects when multiple volumes exist
+# Try parsing as single object first, then check for 'sources' key
+try:
+    obj = json.loads(data)
+    print('true' if obj else 'false')
+except:
+    print('true' if data and data != 'null' else 'false')
+" 2>/dev/null)
 chk "Deployment has a projected volume" \
-  "$([ -n "$proj" ] && echo true || echo false)" && ((score++))
+  "$([ "$proj_count" = "true" ] && echo true || echo false)" && ((score++))
 
-mount=$(kget deploy/token-app default '.spec.template.spec.containers[0].volumeMounts[0].mountPath')
+# BUG FIX: search ALL volumeMounts for the target path — not just index [0]
+# The SA mount may not be the first volumeMount
+target_mount="/var/run/secrets/kubernetes.io/serviceaccount"
+all_mounts=$(kubectl get deploy token-app -n default \
+  -o jsonpath='{.spec.template.spec.containers[0].volumeMounts[*].mountPath}' 2>/dev/null)
 chk "Token mounted at /var/run/secrets/kubernetes.io/serviceaccount" \
-  "$([ "$mount" = "/var/run/secrets/kubernetes.io/serviceaccount" ] && echo true || echo false)" && ((score++))
+  "$(echo "$all_mounts" | tr ' ' '\n' | grep -qx "$target_mount" && echo true || echo false)" && ((score++))
 
+# Check deployment still running
 avail=$(kubectl get deploy token-app -n default -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
 chk "Deployment token-app is still running" \
   "$([ -n "$avail" ] && [ "$avail" -gt 0 ] 2>/dev/null && echo true || echo false)" && ((score++))

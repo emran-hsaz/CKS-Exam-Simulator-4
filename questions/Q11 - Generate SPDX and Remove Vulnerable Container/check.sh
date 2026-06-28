@@ -11,22 +11,27 @@ score_line() {
   else                        echo -e "\n  ${RED}${BOLD}Score: $s/$t ($p%) — Try again!${NC}\n"; fi
 }
 chk() { if [ "$2" = "true" ]; then pass "$1"; return 0; else fail "$1"; return 1; fi; }
-kget() { kubectl get "$1" -n "$2" -o jsonpath="{$3}" 2>/dev/null; }
 
 score=0; total=3
 hdr "Q11 | SPDX Document and Remove Vulnerable Container (3 pts)"
 
-images=$(kget deploy/multi-alpine default '.spec.template.spec.containers[*].image')
+# BUG FIX: grep -qv '3.19.1' could match '13.19.1' or any string containing that substring.
+# Use word-boundary / exact image tag match with colon delimiter.
+# Get all images as newline-separated list and check none exactly matches 'alpine:3.19.1'
+all_images=$(kubectl get deploy multi-alpine -n default \
+  -o jsonpath='{.spec.template.spec.containers[*].image}' 2>/dev/null | tr ' ' '\n')
 chk "Container alpine:3.19.1 has been removed from Deployment" \
-  "$(echo "$images" | grep -qv '3.19.1' && echo true || echo false)" && ((score++))
+  "$(echo "$all_images" | grep -qx 'alpine:3.19.1' && echo false || echo true)" && ((score++))
 
+# BUG FIX: container count — use jsonpath array length via kubectl directly (no python3 needed)
+# kubectl jsonpath does not support len(), so we count items via go-template
 count=$(kubectl get deploy multi-alpine -n default \
-  -o jsonpath='{.spec.template.spec.containers}' 2>/dev/null | \
-  python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null)
+  -o go-template='{{len .spec.template.spec.containers}}' 2>/dev/null)
 chk "Deployment now has 2 containers (was 3)" \
   "$([ "$count" = "2" ] && echo true || echo false)" && ((score++))
 
-chk "SPDX file /root/alpine.spdx exists" \
-  "$([ -f /root/alpine.spdx ] && echo true || echo false)" && ((score++))
+# Check SPDX file exists and is non-empty
+chk "SPDX file /root/alpine.spdx exists and is non-empty" \
+  "$([ -s /root/alpine.spdx ] && echo true || echo false)" && ((score++))
 
 score_line $score $total

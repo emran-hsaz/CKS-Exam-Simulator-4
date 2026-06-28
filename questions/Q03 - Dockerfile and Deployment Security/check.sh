@@ -16,16 +16,22 @@ kget() { kubectl get "$1" -n "$2" -o jsonpath="{$3}" 2>/dev/null; }
 score=0; total=4
 hdr "Q3 | Dockerfile and Deployment Security (4 pts)"
 
+# Check Dockerfile has USER nobody
 chk "Dockerfile contains USER nobody" \
   "$(grep -q 'USER nobody' /root/Dockerfile 2>/dev/null && echo true || echo false)" && ((score++))
 
+# Check runAsUser = 65535
 rau=$(kget deploy/secure-app default '.spec.template.spec.containers[0].securityContext.runAsUser')
 chk "Deployment runAsUser = 65535" "$([ "$rau" = "65535" ] && echo true || echo false)" && ((score++))
 
+# Check readOnlyRootFilesystem = true
 rfs=$(kget deploy/secure-app default '.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem')
 chk "Deployment readOnlyRootFilesystem = true" "$([ "$rfs" = "true" ] && echo true || echo false)" && ((score++))
 
+# BUG FIX: privileged must be explicitly set to false — absent field is NOT the same as false
+# An absent field means the runtime default (which may be true in some cases)
 priv=$(kget deploy/secure-app default '.spec.template.spec.containers[0].securityContext.privileged')
-chk "Deployment privileged = false" "$([ "$priv" = "false" ] || [ -z "$priv" ] && echo true || echo false)" && ((score++))
+chk "Deployment privileged = false (must be explicitly set)" \
+  "$([ "$priv" = "false" ] && echo true || echo false)" && ((score++))
 
 score_line $score $total

@@ -16,15 +16,21 @@ APISERVER="/etc/kubernetes/manifests/kube-apiserver.yaml"
 score=0; total=4
 hdr "Q6 | Configure API Server Audit Logging (4 pts)"
 
-chk "--audit-policy-file configured in API server" \
+# Check audit-policy-file exact path
+chk "--audit-policy-file=/etc/kubernetes/audit-policy.yaml" \
   "$(grep -q 'audit-policy-file=/etc/kubernetes/audit-policy.yaml' "$APISERVER" 2>/dev/null && echo true || echo false)" && ((score++))
 
-chk "--audit-log-path=/var/log/kubernetes/audit.log configured" \
+# Check audit-log-path exact path
+chk "--audit-log-path=/var/log/kubernetes/audit.log" \
   "$(grep -q 'audit-log-path=/var/log/kubernetes/audit.log' "$APISERVER" 2>/dev/null && echo true || echo false)" && ((score++))
 
-chk "--audit-log-maxbackup=2 configured" \
-  "$(grep -q 'audit-log-maxbackup=2' "$APISERVER" 2>/dev/null && echo true || echo false)" && ((score++))
+# BUG FIX: use grep with exact value boundary — maxbackup=2 must not match =20, =21, =200 etc.
+# Extract the actual value and compare numerically
+maxbackup=$(grep 'audit-log-maxbackup' "$APISERVER" 2>/dev/null | grep -oP 'audit-log-maxbackup=\K[0-9]+' | head -1)
+chk "--audit-log-maxbackup=2 (exactly 2)" \
+  "$([ "$maxbackup" = "2" ] && echo true || echo false)" && ((score++))
 
+# Check log file was created (API server must have restarted and written logs)
 chk "Audit log file exists at /var/log/kubernetes/audit.log" \
   "$([ -f /var/log/kubernetes/audit.log ] && echo true || echo false)" && ((score++))
 

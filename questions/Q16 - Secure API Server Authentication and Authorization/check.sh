@@ -16,17 +16,30 @@ APISERVER="/etc/kubernetes/manifests/kube-apiserver.yaml"
 score=0; total=4
 hdr "Q16 | Secure API Server Authentication and Authorization (4 pts)"
 
-chk "--anonymous-auth=false in API server" \
-  "$(grep -q 'anonymous-auth=false' "$APISERVER" 2>/dev/null && echo true || echo false)" && ((score++))
+# BUG FIX: grep -q 'anonymous-auth=false' would also match '--anonymous-auth=false-something'
+# Use grep with exact flag boundary using a more precise pattern
+anon_val=$(grep 'anonymous-auth' "$APISERVER" 2>/dev/null \
+  | grep -oP 'anonymous-auth=\K[^ "]+' | tr -d '"' | head -1)
+chk "--anonymous-auth=false" \
+  "$([ "$anon_val" = "false" ] && echo true || echo false)" && ((score++))
 
-auth_mode=$(grep 'authorization-mode' "$APISERVER" 2>/dev/null | grep -o 'Node,RBAC\|RBAC,Node')
-chk "--authorization-mode includes Node and RBAC" \
-  "$([ -n "$auth_mode" ] && echo true || echo false)" && ((score++))
+# BUG FIX: previous grep for 'Node,RBAC|RBAC,Node' missed trailing spaces/quotes.
+# Extract the authorization-mode value precisely and check both Node and RBAC are present.
+auth_val=$(grep 'authorization-mode' "$APISERVER" 2>/dev/null \
+  | grep -oP 'authorization-mode=\K[^ "]+' | tr -d '"' | head -1)
+has_node=$(echo "$auth_val" | grep -q 'Node' && echo true || echo false)
+has_rbac=$(echo "$auth_val" | grep -q 'RBAC' && echo true || echo false)
+chk "--authorization-mode contains Node and RBAC (current: ${auth_val:-not set})" \
+  "$([ "$has_node" = "true" ] && [ "$has_rbac" = "true" ] && echo true || echo false)" && ((score++))
 
-chk "NodeRestriction admission plugin is enabled" \
-  "$(grep -q 'NodeRestriction' "$APISERVER" 2>/dev/null && echo true || echo false)" && ((score++))
+# Check NodeRestriction is in admission plugins
+chk "NodeRestriction in --enable-admission-plugins" \
+  "$(grep 'enable-admission-plugins' "$APISERVER" 2>/dev/null \
+     | grep -q 'NodeRestriction' && echo true || echo false)" && ((score++))
 
-api_running=$(kubectl get pod -n kube-system -l component=kube-apiserver --no-headers 2>/dev/null | grep -c Running)
+# Check API server pod is running
+api_running=$(kubectl get pod -n kube-system -l component=kube-apiserver \
+  --no-headers 2>/dev/null | grep -c Running)
 chk "API server is Running after changes" \
   "$([ "$api_running" -ge 1 ] && echo true || echo false)" && ((score++))
 

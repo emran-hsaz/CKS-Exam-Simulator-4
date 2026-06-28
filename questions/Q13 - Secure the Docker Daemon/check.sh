@@ -15,14 +15,23 @@ chk() { if [ "$2" = "true" ]; then pass "$1"; return 0; else fail "$1"; return 1
 score=0; total=3
 hdr "Q13 | Secure the Docker Daemon (3 pts)"
 
+# BUG FIX: "! id testuser | grep -q docker" is a bash precedence bug.
+# The ! only negates the exit code of 'id', not the pipe.
+# So this reads as: (!id testuser) | grep -q docker
+# which pipes the output of id (regardless of negation) to grep.
+# Fix: capture the group list first, then test it.
+user_groups=$(id testuser 2>/dev/null)
 chk "testuser is NOT in the docker group" \
-  "$(! id testuser 2>/dev/null | grep -q docker && echo true || echo false)" && ((score++))
+  "$(echo "$user_groups" | grep -qw 'docker' && echo false || echo true)" && ((score++))
 
+# Check socket owner
 sock_owner=$(stat -c '%U' /var/run/docker.sock 2>/dev/null)
-chk "Docker socket owner = root" "$([ "$sock_owner" = "root" ] && echo true || echo false)" && ((score++))
+chk "Docker socket owner = root" \
+  "$([ "$sock_owner" = "root" ] && echo true || echo false)" && ((score++))
 
+# Check socket group is not testuser
 sock_group=$(stat -c '%G' /var/run/docker.sock 2>/dev/null)
-chk "Docker socket group = root or docker (not testuser)" \
+chk "Docker socket group is not owned by testuser" \
   "$([ "$sock_group" != "testuser" ] && echo true || echo false)" && ((score++))
 
 score_line $score $total
