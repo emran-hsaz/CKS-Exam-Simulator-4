@@ -35,42 +35,44 @@ kubectl rollout status deploy/multi-alpine --timeout=120s 2>/dev/null || true
 # --- Install trivy if not present ---
 if ! command -v trivy &>/dev/null; then
   echo "Installing trivy..."
-  apt-get update -qq 2>/dev/null && \
+  apt-get update -qq 2>/dev/null
   apt-get install -y wget apt-transport-https gnupg 2>/dev/null || true
-
   wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
     | gpg --dearmor -o /usr/share/keyrings/trivy.gpg 2>/dev/null
-
   echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
     > /etc/apt/sources.list.d/trivy.list
-
-  apt-get update -qq 2>/dev/null && \
+  apt-get update -qq 2>/dev/null
   apt-get install -y trivy 2>/dev/null || true
 fi
 
 # --- Install bom if not present ---
 if ! command -v bom &>/dev/null; then
   echo "Installing bom..."
-  BOM_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/bom/releases/latest \
-    | grep '"tag_name"' | cut -d'"' -f4 2>/dev/null || echo "v0.6.0")
   wget -qO /usr/local/bin/bom \
-    "https://github.com/kubernetes-sigs/bom/releases/download/${BOM_VERSION}/bom-amd64-linux" \
+    "https://github.com/kubernetes-sigs/bom/releases/download/v0.6.0/bom-amd64-linux" \
     2>/dev/null && chmod +x /usr/local/bin/bom || true
 fi
 
 echo ""
-echo "════════════════════════════════════════════════"
-echo "  Deployment multi-alpine has 3 containers:"
-echo "    - alpine:3.18.0"
-echo "    - alpine:3.19.1   ← contains libcrypto3-3.1.4-r5"
-echo "    - alpine:3.20.0"
+echo "════════════════════════════════════════════════════════"
+echo "  Deployment multi-alpine — 3 containers:"
 echo ""
-echo "  Tools available:"
-command -v trivy &>/dev/null && echo "  ✔ trivy:  $(trivy --version 2>/dev/null | head -1)" || echo "  ✘ trivy: not installed (install manually or use the hint above)"
-command -v bom   &>/dev/null && echo "  ✔ bom:    $(bom version 2>/dev/null | head -1)"   || echo "  ✘ bom:   not installed"
-echo "════════════════════════════════════════════════"
+echo "    Container      Image            libcrypto3 version"
+echo "    ----------     --------         ------------------"
+echo "    alpine-318     alpine:3.18.0    3.1.0-r4  (different version)"
+echo "    alpine-319     alpine:3.19.1    3.1.4-r5  ← VULNERABLE — this is the target"
+echo "    alpine-320     alpine:3.20.0    3.3.x     (patched version)"
 echo ""
-echo "Steps:"
-echo "  1. trivy image alpine:3.19.1 | grep libcrypto3"
-echo "  2. kubectl edit deploy multi-alpine  (remove alpine-319 container)"
+echo "  All alpine images have libcrypto3 — grep for the SPECIFIC version 3.1.4-r5"
+echo ""
+echo "  Workflow:"
+echo "  1. trivy image --scanners vuln alpine:3.19.1 | grep 'libcrypto3'"
+echo "     Look for version 3.1.4-r5 in the Installed Version column"
+echo "  2. kubectl edit deploy multi-alpine"
+echo "     Delete the alpine-319 container block (image: alpine:3.19.1)"
 echo "  3. bom generate --image alpine:3.19.1 --output /root/alpine.spdx"
+echo "════════════════════════════════════════════════════════"
+echo ""
+command -v trivy &>/dev/null && echo "  ✔ trivy installed" || echo "  ✘ trivy NOT installed — install manually"
+command -v bom   &>/dev/null && echo "  ✔ bom installed"   || echo "  ✘ bom NOT installed — install manually"
+echo ""

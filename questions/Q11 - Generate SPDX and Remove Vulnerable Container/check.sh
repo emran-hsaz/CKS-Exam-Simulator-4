@@ -15,23 +15,31 @@ chk() { if [ "$2" = "true" ]; then pass "$1"; return 0; else fail "$1"; return 1
 score=0; total=3
 hdr "Q11 | SPDX Document and Remove Vulnerable Container (3 pts)"
 
-# BUG FIX: grep -qv '3.19.1' could match '13.19.1' or any string containing that substring.
-# Use word-boundary / exact image tag match with colon delimiter.
-# Get all images as newline-separated list and check none exactly matches 'alpine:3.19.1'
+# --- Check 1: alpine:3.19.1 container removed ---
+# Get all images as exact newline-separated entries, check none exactly matches alpine:3.19.1
 all_images=$(kubectl get deploy multi-alpine -n default \
   -o jsonpath='{.spec.template.spec.containers[*].image}' 2>/dev/null | tr ' ' '\n')
+
 chk "Container alpine:3.19.1 has been removed from Deployment" \
   "$(echo "$all_images" | grep -qx 'alpine:3.19.1' && echo false || echo true)" && ((score++))
 
-# BUG FIX: container count — use jsonpath array length via kubectl directly (no python3 needed)
-# kubectl jsonpath does not support len(), so we count items via go-template
+# --- Check 2: Deployment now has exactly 2 containers ---
 count=$(kubectl get deploy multi-alpine -n default \
   -o go-template='{{len .spec.template.spec.containers}}' 2>/dev/null)
+
 chk "Deployment now has 2 containers (was 3)" \
   "$([ "$count" = "2" ] && echo true || echo false)" && ((score++))
 
-# Check SPDX file exists and is non-empty
+# --- Check 3: SPDX file exists and is non-empty ---
 chk "SPDX file /root/alpine.spdx exists and is non-empty" \
   "$([ -s /root/alpine.spdx ] && echo true || echo false)" && ((score++))
 
 score_line $score $total
+
+# Show current state for debugging
+echo -e "  ${CYAN}Current images in Deployment:${NC}"
+echo "$all_images" | while read -r img; do echo "    - $img"; done
+echo -e "  ${CYAN}Container count:${NC} ${count:-unknown}"
+[ -f /root/alpine.spdx ] && \
+  echo -e "  ${CYAN}SPDX file size:${NC} $(du -h /root/alpine.spdx | cut -f1)" || \
+  echo -e "  ${CYAN}SPDX file:${NC} not found"
